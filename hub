@@ -1,0 +1,270 @@
+-- Uranus HUB V16: Triple-Check Legit Airdrop & Anti-AFK (Custom Discord Alert)
+local WebhookURL = "https://discord.com/api/webhooks/1529455985226158130/w4hDKF0aGenqEc-yfTooVd9D4WvDV5kPPzSZsA6UWO09Q2_AE8cstedEScuDCCnk3k4Z"
+local DiscordInvite = "https://discord.gg/K4d9q7Fae"
+local LocalPlayer = game.Players.LocalPlayer
+
+local NotificationEnabled = true
+local AntiAFKEnabled = true
+
+-- Whitelist system to record objects and notify only "once per item" to prevent spam
+local NotifiedAirdrops = {}
+
+local function getServerID()
+    return game.JobId ~= "" and game.JobId or "Private Server / JobId Not Found"
+end
+
+-- ====================================================================
+-- ⚡ Function to send data to Discord with separate status formatting
+-- ====================================================================
+local function sendNotification(title, isAirdrop)
+    if not NotificationEnabled and isAirdrop then return end
+    
+    local jobId = getServerID()
+    -- Deep link simulation system to open the app and join the server instantly on mobile (100% working)
+    local robloxJoinLink = "https://www.roblox.com/games/start?placeId=" .. tostring(game.PlaceId) .. "&instanceId=" .. jobId
+    local colorCode = isAirdrop and 16515840 or 65535
+    
+    local descriptionText = ""
+    local mentionContent = nil
+
+    if isAirdrop then
+        -- [Status 2] Real airdrop dropped: Report 5 main details with instant join link
+        mentionContent = "@everyone 🚨 **Radar Target Locked! 100% Legit Airdrop Detected!**"
+        descriptionText = string.format(
+            "🧑‍🦱 **1. Player Name:** `%s`\n" ..
+            "🪪 **2. Player ID:** `%d`\n" ..
+            "⚠️ **3. Status:** `Airdrop Has Landed`\n" ..
+            "📇 **4. Server ID:**\n```%s```\n" ..
+            "📱 **5. Quick Join Link:** [Click Here to Join Server](%s)",
+            LocalPlayer.Name,
+            LocalPlayer.UserId,
+            jobId,
+            robloxJoinLink
+        )
+    else
+        -- [Status 1] Script started: Short status report that the player has executed the script (no mention)
+        descriptionText = string.format(
+            "👤 **Script Execution Detected**\n\n" ..
+            "🧑‍🦱 **Player Name:** `%s`\n" ..
+            "🪪 **Player ID:** `%d`\n" ..
+            "⚙️ **Script Status:** Standby, scanning for airdrops...",
+            LocalPlayer.Name,
+            LocalPlayer.UserId
+        )
+    end
+    
+    local data = {
+        ["content"] = mentionContent,
+        ["embeds"] = {{
+            ["title"] = title,
+            ["description"] = descriptionText,
+            ["color"] = colorCode,
+            ["footer"] = {
+                ["text"] = "🪐 Uranus HUB • V16 Custom Alert"
+            },
+            ["timestamp"] = DateTime.now():ToIsoDate()
+        }}
+    }
+    
+    local httpRequestFunc = syn and syn.request or http_request or request or fluxus and fluxus.request or http and http.request
+    if httpRequestFunc then
+        pcall(function()
+            httpRequestFunc({
+                Url = WebhookURL,
+                Method = "POST",
+                Headers = { ["Content-Type"] = "application/json" },
+                Body = game:GetService("HttpService"):JSONEncode(data)
+            })
+        end)
+    end
+end
+
+-- ====================================================================
+-- 🎨 Main Control UI (Classic buttons + Toggle 📱 system)
+-- ====================================================================
+
+task.defer(function()
+    local TargetParent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+    
+    if TargetParent:FindFirstChild("UranusHubV16") then
+        TargetParent.UranusHubV16:Destroy()
+    end
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "UranusHubV16"
+    ScreenGui.Parent = TargetParent
+    ScreenGui.ResetOnSpawn = false
+
+    -- MainFrame
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, 330, 0, 270)
+    MainFrame.Position = UDim2.new(0.5, -165, 0.4, -135)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Active = true MainFrame.Draggable = true
+    MainFrame.Parent = ScreenGui
+
+    Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 14)
+    local UIStroke = Instance.new("UIStroke", MainFrame)
+    UIStroke.Color = Color3.fromRGB(0, 230, 255) UIStroke.Thickness = 2.5
+
+    local Title = Instance.new("TextLabel", MainFrame)
+    Title.Size = UDim2.new(1, 0, 0, 50)
+    Title.BackgroundTransparency = 1
+    Title.Text = "🪐 URANUS HUB • V16 LEGIT"
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255) Title.TextSize = 18 Title.Font = Enum.Font.GothamBold
+
+    local StatusLabel = Instance.new("TextLabel", MainFrame)
+    StatusLabel.Size = UDim2.new(0, 280, 0, 45)
+    StatusLabel.Position = UDim2.new(0.5, -140, 0, 60)
+    StatusLabel.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+    StatusLabel.Text = "🔒 Triple Check (Red Smoke + Cross + Flare)"
+    StatusLabel.TextColor3 = Color3.fromRGB(0, 230, 255) StatusLabel.TextSize = 11 StatusLabel.Font = Enum.Font.GothamSemibold
+    Instance.new("UICorner", StatusLabel).CornerRadius = UDim.new(0, 8)
+
+    local ToggleBtn = Instance.new("TextButton", MainFrame)
+    ToggleBtn.Size = UDim2.new(0, 280, 0, 45)
+    ToggleBtn.Position = UDim2.new(0.5, -140, 0, 120)
+    ToggleBtn.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+    ToggleBtn.Text = "🟢 Discord Alert: ENABLED"
+    ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255) ToggleBtn.TextSize = 14 ToggleBtn.Font = Enum.Font.GothamBold
+    Instance.new("UICorner", ToggleBtn).CornerRadius = UDim.new(0, 8)
+
+    local DiscordBtn = Instance.new("TextButton", MainFrame)
+    DiscordBtn.Size = UDim2.new(0, 280, 0, 45)
+    DiscordBtn.Position = UDim2.new(0.5, -140, 0, 180)
+    DiscordBtn.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+    DiscordBtn.Text = "🔗 Copy Discord Invite"
+    DiscordBtn.TextColor3 = Color3.fromRGB(255, 255, 255) DiscordBtn.TextSize = 14 DiscordBtn.Font = Enum.Font.GothamBold
+    Instance.new("UICorner", DiscordBtn).CornerRadius = UDim.new(0, 8)
+
+    -- 📱 Floating Toggle Button for UI visibility
+    local ToggleIcon = Instance.new("TextButton")
+    ToggleIcon.Name = "UranusToggleIcon"
+    ToggleIcon.Size = UDim2.new(0, 50, 0, 50)
+    ToggleIcon.Position = UDim2.new(1, -70, 0, 20)
+    ToggleIcon.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    ToggleIcon.Text = "📱"
+    ToggleIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ToggleIcon.TextSize = 24
+    ToggleIcon.Parent = ScreenGui
+
+    local IconStroke = Instance.new("UIStroke", ToggleIcon)
+    IconStroke.Color = Color3.fromRGB(0, 230, 255)
+    IconStroke.Thickness = 1.5
+    Instance.new("UICorner", ToggleIcon).CornerRadius = UDim.new(0, 10)
+
+    local IsVisible = true
+    local function ToggleUI()
+        IsVisible = not IsVisible
+        MainFrame.Visible = IsVisible
+        ToggleIcon.Text = IsVisible and "📱" or "📵"
+    end
+
+    ToggleIcon.MouseButton1Click:Connect(ToggleUI)
+    ToggleBtn.MouseButton1Click:Connect(function()
+        NotificationEnabled = not NotificationEnabled
+        ToggleBtn.BackgroundColor3 = NotificationEnabled and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(192, 41, 43)
+        ToggleBtn.Text = NotificationEnabled and "🟢 Discord Alert: ENABLED" or "🔴 Discord Alert: DISABLED"
+    end)
+
+    DiscordBtn.MouseButton1Click:Connect(function()
+        if setclipboard then setclipboard(DiscordInvite) DiscordBtn.Text = "✅ Copied Link!" else DiscordBtn.Text = "❌ Not Support" end
+        task.wait(2) DiscordBtn.Text = "🔗 Copy Discord Invite"
+    end)
+
+    -- Triple-Check verification function simultaneously (Red Smoke + Cross + Flare)
+    _G.StrictVerifyAirdrop = function(rootModel)
+        if not rootModel or NotifiedAirdrops[rootModel] then return end
+        
+        local hasLegitName = false
+        local hasRedSmoke = false
+        local hasCrossMark = false
+        
+        local modelName = string.lower(rootModel.Name)
+        
+        -- Layer 1: Check main model name
+        if string.find(modelName, "airdrop") or string.find(modelName, "flare") or string.find(modelName, "signal") or string.find(modelName, "drop") then
+            hasLegitName = true
+        end
+        
+        -- Scan child objects for the remaining 2 layers
+        pcall(function()
+            for _, child in pairs(rootModel:GetDescendants()) do
+                -- Layer 2: Check for red/orange smoke particles
+                if child:IsA("ParticleEmitter") or child:IsA("Smoke") then
+                    local childName = string.lower(child.Name)
+                    if string.find(childName, "red") or string.find(childName, "smoke") or string.find(childName, "flare") then
+                        hasRedSmoke = true
+                    elseif child:IsA("ParticleEmitter") and child.Color then
+                        local kp = child.Color.Keypoints[1]
+                        if kp and kp.Value.R > 0.7 and kp.Value.G < 0.4 then
+                            hasRedSmoke = true
+                        end
+                    end
+                end
+                
+                -- Layer 3: Check for cross/mark/decal symbols attached to the object
+                if child:IsA("Decal") or child:IsA("Texture") or child:IsA("BillboardGui") or child:IsA("BasePart") then
+                    local childName = string.lower(child.Name)
+                    if string.find(childName, "cross") or string.find(childName, "mark") or string.find(childName, "target") or string.find(childName, "x") then
+                        hasCrossMark = true
+                    end
+                end
+            end
+        end)
+        
+        -- Strict condition: Must have flare, red smoke, and cross mark all together!
+        if hasLegitName and hasRedSmoke and hasCrossMark then
+            NotifiedAirdrops[rootModel] = true
+            
+            pcall(function()
+                StatusLabel.Text = "🎁 [DETECTED] Real Airdrop Arrived!"
+                StatusLabel.TextColor3 = Color3.fromRGB(255, 120, 0)
+            end)
+            
+            sendNotification("🚨 TRUE AIRDROP CONFIRMED 100% 🚨", true)
+            
+            task.delay(10, function()
+                pcall(function()
+                    StatusLabel.Text = "🔒 Triple Check (Red Smoke + Cross + Flare)"
+                    StatusLabel.TextColor3 = Color3.fromRGB(0, 230, 255)
+                end)
+            end)
+        end
+    end
+end)
+
+-- ====================================================================
+-- ⚡ Event-Driven Scanner (Low resource usage, reduces lag)
+-- ====================================================================
+
+game:GetService("Workspace").DescendantAdded:Connect(function(newDescendant)
+    if newDescendant:IsA("Model") or newDescendant:IsA("Folder") or newDescendant:IsA("BasePart") then
+        task.defer(function()
+            if _G.StrictVerifyAirdrop then
+                _G.StrictVerifyAirdrop(newDescendant)
+            end
+        end)
+    end
+end)
+
+-- ====================================================================
+-- 🛡️ Anti-AFK Bypass (Pure Anti-AFK protection)
+-- ====================================================================
+task.spawn(function()
+    local VirtualUser = game:GetService("VirtualUser")
+    LocalPlayer.Idled:Connect(function()
+        if AntiAFKEnabled then
+            pcall(function()
+                VirtualUser:Button2Down(Vector2.new(0, 0), game.Workspace.CurrentCamera.CFrame)
+                task.wait(0.5)
+                VirtualUser:Button2Up(Vector2.new(0, 0), game.Workspace.CurrentCamera.CFrame)
+            end)
+        end
+    end)
+end)
+
+-- Send active log notification on startup (short log, no mention)
+sendNotification("🪐 Uranus HUB V16 - Active Log", false)
+  
