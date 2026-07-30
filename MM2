@@ -1,0 +1,393 @@
+-- -- Uranus HUB : Pro Walk Model (Ground Snapped Car)
+local player = game.Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local PathfindingService = game:GetService("PathfindingService")
+
+if playerGui:FindFirstChild("UranusWalkNav") then
+    playerGui.UranusWalkNav:Destroy()
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "UranusWalkNav"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+-- กรอบเมนูหลัก
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 280, 0, 320)
+mainFrame.Position = UDim2.new(0.5, -140, 0.5, -160)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+mainFrame.BorderSizePixel = 0
+mainFrame.Visible = false
+mainFrame.Parent = screenGui
+
+local frameCorner = Instance.new("UICorner")
+frameCorner.CornerRadius = UDim.new(0, 10)
+frameCorner.Parent = mainFrame
+
+-- ปุ่มเปิด/ปิดเมนูหลัก
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0, 160, 0, 40)
+toggleBtn.Position = UDim2.new(0, 20, 0, 100)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.TextSize = 13
+toggleBtn.Font = Enum.Font.GothamBold
+toggleBtn.Text = "🚗 เมนูขับรถเกาะถนน"
+toggleBtn.Parent = screenGui
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 8)
+btnCorner.Parent = toggleBtn
+
+toggleBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = not mainFrame.Visible
+end)
+
+-- หัวข้อ
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 0, 40)
+titleLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextSize = 13
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.Text = "🚀 Uranus HUB (Anti-Ban Safe)"
+titleLabel.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = titleLabel
+
+local targetPos = Vector3.new(0, 0, 0)
+local walkType = "Normal"
+local currentSpeed = 35
+local isExecuting = false
+
+-- โฟลเดอร์เส้นทางเรืองแสง
+local pathFolder = Instance.new("Folder")
+pathFolder.Name = "UranusPathVisualizerWalk"
+pathFolder.Parent = Workspace
+
+local function clearPathVisuals()
+    pathFolder:ClearAllChildren()
+end
+
+local function getGroundHeight(pos)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.IgnoreWater = true
+    
+    if player.Character then
+        raycastParams.FilterDescendantsInstances = {player.Character}
+    end
+    
+    local raycastResult = Workspace:Raycast(pos + Vector3.new(0, 15, 0), Vector3.new(0, -40, 0), raycastParams)
+    if raycastResult then
+        return raycastResult.Position.Y
+    end
+    return pos.Y
+end
+
+local function drawPathVisuals(waypoints)
+    clearPathVisuals()
+    for _, wp in ipairs(waypoints) do
+        local part = Instance.new("Part")
+        part.Size = Vector3.new(0.6, 0.6, 0.6)
+        local groundY = getGroundHeight(wp.Position)
+        part.Position = Vector3.new(wp.Position.X, groundY + 0.5, wp.Position.Z)
+        part.Anchored = true
+        part.CanCollide = false
+        part.Material = Enum.Material.Neon
+        part.Color = Color3.fromRGB(255, 215, 0)
+        part.Shape = Enum.PartType.Ball
+        part.Parent = pathFolder
+    end
+end
+
+local function getPlayerCarModel()
+    local char = player.Character
+    if not char then return nil, nil end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if humanoid and humanoid.SeatPart then
+        local seat = humanoid.SeatPart
+        local model = seat
+        while model and model ~= Workspace and not model:IsA("Model") do
+            model = model.Parent
+        end
+        if model and model:IsA("Model") then
+            return model, model.PrimaryPart or seat
+        end
+    end
+    return nil, nil
+end
+
+local function isAntiCheatTriggered()
+    for _, gui in ipairs(playerGui:GetDescendants()) do
+        if gui:IsA("TextLabel") and gui.Visible then
+            local text = string.lower(gui.Text)
+            if string.find(text, "anti noclip") or string.find(text, "teleport detected") or string.find(text, "fly detected") then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- ==================== 1. ระบบปักหมุด ====================
+local pinButton = Instance.new("TextButton")
+pinButton.Size = UDim2.new(0, 250, 0, 36)
+pinButton.Position = UDim2.new(0.5, -125, 0, 48)
+pinButton.BackgroundColor3 = Color3.fromRGB(70, 130, 180)
+pinButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+pinButton.TextSize = 12
+pinButton.Font = Enum.Font.GothamBold
+pinButton.Text = "📍 1. ปักหมุดตำแหน่งที่ยืนอยู่"
+pinButton.Parent = mainFrame
+
+local pinCorner = Instance.new("UICorner")
+pinCorner.CornerRadius = UDim.new(0, 6)
+pinCorner.Parent = pinButton
+
+pinButton.MouseButton1Click:Connect(function()
+    local char = player.Character
+    if char and char:FindFirstChild("HumanoidRootPart") then
+        targetPos = char.HumanoidRootPart.Position
+        pinButton.Text = "📍 ปักหมุดสำเร็จ!"
+        task.delay(1.5, function()
+            pinButton.Text = "📍 1. ปักหมุดตำแหน่งที่ยืนอยู่"
+        end)
+    end
+end)
+
+-- ==================== 2. ระบบสลับรูปแบบ ====================
+local modeButton = Instance.new("TextButton")
+modeButton.Size = UDim2.new(0, 250, 0, 36)
+modeButton.Position = UDim2.new(0.5, -125, 0, 90)
+modeButton.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+modeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+modeButton.TextSize = 12
+modeButton.Font = Enum.Font.GothamBold
+modeButton.Text = "⚙️ 2. รูปแบบ: เดินปกติ"
+modeButton.Parent = mainFrame
+
+local modeCorner = Instance.new("UICorner")
+modeCorner.CornerRadius = UDim.new(0, 6)
+modeCorner.Parent = modeButton
+
+modeButton.MouseButton1Click:Connect(function()
+    if walkType == "Normal" then
+        walkType = "Float"
+        modeButton.Text = "🚗 2. รูปแบบ: ขับรถเกาะติดถนน (ปลอดภัยไม่โดนแบน)"
+        modeButton.BackgroundColor3 = Color3.fromRGB(46, 139, 87)
+    else
+        walkType = "Normal"
+        modeButton.Text = "⚙️ 2. รูปแบบ: เดินปกติ"
+        modeButton.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+    end
+end)
+
+-- ==================== 3. ระบบปรับความเร็ว ====================
+local speedBox = Instance.new("TextBox")
+speedBox.Size = UDim2.new(0, 250, 0, 34)
+speedBox.Position = UDim2.new(0.5, -125, 0, 132)
+speedBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+speedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+speedBox.PlaceholderText = "⚡ 3. ใส่ความเร็ว (ค่าแนะนำ: 35)"
+speedBox.Text = "35"
+speedBox.TextSize = 12
+speedBox.Font = Enum.Font.Gotham
+speedBox.Parent = mainFrame
+
+local speedCorner = Instance.new("UICorner")
+speedCorner.CornerRadius = UDim.new(0, 6)
+speedCorner.Parent = speedBox
+
+speedBox.FocusLost:Connect(function()
+    local val = tonumber(speedBox.Text)
+    if val then
+        currentSpeed = math.clamp(val, 5, 300)
+        speedBox.Text = tostring(currentSpeed)
+    else
+        speedBox.Text = tostring(currentSpeed)
+    end
+end)
+
+-- ==================== 4. ปุ่มเริ่มทำงาน ====================
+local goButton = Instance.new("TextButton")
+goButton.Size = UDim2.new(0, 250, 0, 40)
+goButton.Position = UDim2.new(0.5, -125, 0, 174)
+goButton.BackgroundColor3 = Color3.fromRGB(46, 139, 87)
+goButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+goButton.TextSize = 13
+goButton.Font = Enum.Font.GothamBold
+goButton.Text = "🚀 4. ไปยังจุดที่ปักหมุดทันที"
+goButton.Parent = mainFrame
+
+local goCorner = Instance.new("UICorner")
+goCorner.CornerRadius = UDim.new(0, 8)
+goCorner.Parent = goButton
+
+goButton.MouseButton1Click:Connect(function()
+    if isExecuting then
+        isExecuting = false
+        clearPathVisuals()
+        local char = player.Character
+        if char and char:FindFirstChildOfClass("Humanoid") then
+            char:FindFirstChildOfClass("Humanoid").WalkSpeed = 16
+        end
+        goButton.Text = "🚀 4. ไปยังจุดที่ปักหมุดทันที"
+        goButton.BackgroundColor3 = Color3.fromRGB(46, 139, 87)
+        return
+    end
+    
+    local char = player.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    
+    isExecuting = true
+    goButton.Text = "⏹️ หยุดการทำงาน"
+    goButton.BackgroundColor3 = Color3.fromRGB(200, 80, 80)
+    
+    task.spawn(function()
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        local rootPart = char.HumanoidRootPart
+        
+        while isExecuting do
+            while isAntiCheatTriggered() and isExecuting do
+                clearPathVisuals()
+                goButton.Text = "⚠️ รอคำเตือนหาย..."
+                task.wait(1)
+            end
+            if not isExecuting then break end
+            goButton.Text = "⏹️ หยุดการทำงาน"
+
+            humanoid.WalkSpeed = currentSpeed
+            local path = PathfindingService:CreatePath({ 
+                AgentRadius = 2.5, 
+                AgentHeight = 5.0, 
+                AgentCanJump = true,
+                WaypointSpacing = 4
+            })
+            
+            local success = pcall(function() path:ComputeAsync(rootPart.Position, targetPos) end)
+            
+            if success and path.Status == Enum.PathStatus.Success then
+                local waypoints = path:GetWaypoints()
+                drawPathVisuals(waypoints)
+                
+                for _, wp in ipairs(waypoints) do
+                    if not isExecuting then break end
+                    
+                    while isAntiCheatTriggered() and isExecuting do
+                        task.wait(1)
+                    end
+                    
+                    if walkType == "Normal" then
+                        local groundY = getGroundHeight(wp.Position)
+                        humanoid:MoveTo(Vector3.new(wp.Position.X, groundY + 0.5, wp.Position.Z))
+                        if wp.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
+                        local startTime = tick()
+                        repeat task.wait(0.1) until (rootPart.Position - wp.Position).Magnitude < 3.5 or tick() - startTime > 3 or not isExecuting
+                    else
+                        -- โหมดขับรถเกาะถนนจริง (แนบพื้น ไม่ลอย ไม่ติด Fly Detected)
+                        local carModel, carRoot = getPlayerCarModel()
+                        
+                        if carModel and carModel.Parent then
+                            local startPos = carRoot.Position
+                            local groundY = getGroundHeight(wp.Position)
+                            local destPos = Vector3.new(wp.Position.X, groundY + 1.2, wp.Position.Z)
+                            local dist = (destPos - startPos).Magnitude
+                            local duration = dist / currentSpeed
+                            local elapsed = 0
+                            
+                            while elapsed < duration and isExecuting and carModel.Parent do
+                                if isAntiCheatTriggered() then break end
+                                local dt = task.wait(0.02)
+                                elapsed = elapsed + dt
+                                local alpha = math.clamp(elapsed / duration, 0, 1)
+                                local lerpPos = startPos:Lerp(destPos, alpha)
+                                
+                                local lookTarget = Vector3.new(destPos.X, lerpPos.Y, destPos.Z)
+                                if (lookTarget - lerpPos).Magnitude > 0.1 then
+                                    local flatCFrame = CFrame.lookAt(lerpPos, lookTarget)
+                                    if carModel.PrimaryPart then
+                                        carModel:SetPrimaryPartCFrame(flatCFrame)
+                                    else
+                                        carRoot.CFrame = flatCFrame
+                                    end
+                                end
+                                
+                                for _, part in ipairs(carModel:GetDescendants()) do
+                                    if part:IsA("BasePart") then
+                                        part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                                        part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                                    end
+                                end
+                            end
+                        else
+                            local startPos = rootPart.Position
+                            local groundY = getGroundHeight(wp.Position)
+                            local destPos = Vector3.new(wp.Position.X, groundY + 1.5, wp.Position.Z)
+                            local dist = (destPos - startPos).Magnitude
+                            local duration = dist / currentSpeed
+                            local elapsed = 0
+                            
+                            while elapsed < duration and isExecuting do
+                                if isAntiCheatTriggered() then break end
+                                local dt = task.wait(0.02)
+                                elapsed = elapsed + dt
+                                local alpha = math.clamp(elapsed / duration, 0, 1)
+                                local lerpPos = startPos:Lerp(destPos, alpha)
+                                
+                                local lookTarget = Vector3.new(destPos.X, lerpPos.Y, destPos.Z)
+                                if (lookTarget - lerpPos).Magnitude > 0.1 then
+                                    rootPart.CFrame = CFrame.lookAt(lerpPos, lookTarget)
+                                end
+                                rootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                                rootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                            end
+                        end
+                    end
+                end
+                
+                if (rootPart.Position - targetPos).Magnitude < 5 then break end
+            else
+                local groundY = getGroundHeight(targetPos)
+                if walkType == "Normal" then
+                    humanoid:MoveTo(Vector3.new(targetPos.X, groundY + 0.5, targetPos.Z))
+                else
+                    rootPart.CFrame = CFrame.new(targetPos.X, groundY + 1.5, targetPos.Z)
+                end
+                task.wait(1)
+            end
+            task.wait(0.2)
+        end
+        
+        isExecuting = false
+        clearPathVisuals()
+        if char and char:FindFirstChildOfClass("Humanoid") then char:FindFirstChildOfClass("Humanoid").WalkSpeed = 16 end
+        goButton.Text = "🚀 4. ไปยังจุดที่ปักหมุดทันที"
+        goButton.BackgroundColor3 = Color3.fromRGB(46, 139, 87)
+    end)
+end)
+
+-- ปุ่มปิดเมนู
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0, 250, 0, 34)
+closeButton.Position = UDim2.new(0.5, -125, 0, 222)
+closeButton.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.TextSize = 12
+closeButton.Font = Enum.Font.GothamBold
+closeButton.Text = "❌ ปิดเมนู"
+closeButton.Parent = mainFrame
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 8)
+closeCorner.Parent = closeButton
+
+closeButton.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+end)
