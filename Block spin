@@ -1,0 +1,115 @@
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+
+local Window = Fluent:CreateWindow({
+    Title = "Script Hub | Compact",
+    SubTitle = "Simulation & Tools",
+    TabWidth = 100,
+    Size = UDim2.fromOffset(350, 320), -- หน้าต่างขนาดกระทัดรัด
+    Acrylic = true,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+-- 1. แท็บระบบวิ่ง
+local TabRun = Window:AddTab({ Title = "ระบบวิ่ง", Icon = "zap" })
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local loopTask = nil
+local staminaLock = false
+
+-- ฟังก์ชันค้นหา Stamina
+local function getStamina()
+    for _, v in pairs(game:GetDescendants()) do
+        if (v:IsA("IntValue") or v:IsA("NumberValue")) and v.Name:lower():find("stamina") then
+            return v
+        end
+    end
+    return nil
+end
+
+-- เพิ่ม Toggle สำหรับ Stamina ไม่ลด
+TabRun:AddToggle("StaminaLock", {
+    Title = "Stamina ไม่ลด",
+    Default = false,
+    Callback = function(Value)
+        staminaLock = Value
+        if staminaLock then
+            task.spawn(function()
+                while staminaLock do
+                    local stam = getStamina()
+                    if stam then stam.Value = 100 end
+                    task.wait(0.1)
+                end
+            end)
+        end
+    end
+})
+
+-- ตั้งค่าเวลาวิ่ง/พัก
+local runTime = 10
+local restTime = 7
+TabRun:AddInput("RunTimeInput", {Title = "เวลาวิ่ง (วิ)", Default = "10", Callback = function(V) runTime = tonumber(V) or 10 end})
+TabRun:AddInput("RestTimeInput", {Title = "เวลาพัก (วิ)", Default = "7", Callback = function(V) restTime = tonumber(V) or 7 end})
+
+TabRun:AddToggle("RunToggle", {
+    Title = "เริ่มวิ่งวนลูป", 
+    Default = false,
+    Callback = function(Value)
+        if Value then
+            local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp.Anchored = true end
+            loopTask = task.spawn(function()
+                while true do
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+                    task.wait(runTime)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+                    task.wait(restTime)
+                end
+            end)
+        else
+            if loopTask then task.cancel(loopTask) end
+            local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp.Anchored = false end
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+        end
+    end
+})
+
+-- 2. แท็บเครื่องมือ (รวมสคริปต์ใหม่ของคุณ)
+local TabTools = Window:AddTab({ Title = "เครื่องมือ", Icon = "settings" })
+
+TabTools:AddButton({ 
+    Title = "รันสคริปต์ How", 
+    Callback = function() 
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/ratchanon08544-lang/How-k/refs/heads/main/How"))() 
+        Fluent:Notify({Title = "สำเร็จ", Content = "รัน How แล้ว", Duration = 2})
+    end 
+})
+
+TabTools:AddButton({ 
+    Title = "รันสคริปต์ Hub", 
+    Callback = function() 
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/ratchanon08544-lang/How-k/refs/heads/main/hub"))() 
+        Fluent:Notify({Title = "สำเร็จ", Content = "รัน Hub แล้ว", Duration = 2})
+    end 
+})
+
+TabTools:AddButton({ 
+    Title = "รันสคริปต์ MM2", 
+    Callback = function() 
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/ratchanon08544-lang/How-k/refs/heads/main/MM2"))() 
+        Fluent:Notify({Title = "สำเร็จ", Content = "รัน MM2 แล้ว", Duration = 2})
+    end 
+})
+
+TabTools:AddButton({ 
+    Title = "รันสคริปต์ Hi HuB", 
+    Callback = function() 
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/ratchanon08544-lang/How-k/refs/heads/main/Hi%20HuB"))() 
+        Fluent:Notify({Title = "สำเร็จ", Content = "รัน Hi HuB แล้ว", Duration = 2})
+    end 
+})
+
+Fluent:SelectTab(1)
