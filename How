@@ -1,0 +1,392 @@
+-- ตรวจสอบและโหลด Rayfield UI Library
+local successUI, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+end)
+
+if not successUI or not Rayfield then
+    warn("ไม่สามารถโหลด Rayfield UI ได้ กรุณาตรวจสอบอินเทอร์เน็ตหรือ Executor ของคุณ")
+    return
+end
+
+local Window = Rayfield:CreateWindow({
+    Name = "Uranun HuB | PRO 🪐",
+    LoadingTitle = "Loading System...",
+    LoadingSubtitle = "by Collaboration",
+    ConfigurationSaving = { Enabled = false },
+    KeySystem = false
+})
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local Stats = game:GetService("Stats")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+local isSpinning = false
+local isManualSpinning = false
+local manualSpinSpeed = 10
+local selectedPlayerName = nil
+local lastVehicle = nil
+local targetDistance = 5
+local heightOffset = 0 
+local spinSpeed = 60
+local crashMode = "Spin"
+local noclipEnabled = false
+local spectateEnabled = false
+
+local TeleportTargetName = nil
+local TeleportType = "Normal"
+local teleportDistance = 5
+local teleportHeight = 0
+
+local ESPEnabled = false
+local SelectedESPColor = Color3.fromRGB(0, 162, 255)
+
+local serverListHigh = {}
+local serverListLow = {}
+local selectedServerHighId = nil
+local selectedServerLowId = nil
+
+local autoAttackEnabled = false
+local autoAttackMode = "Default Orbit"
+local attackRadius = 30
+local visualCircle = nil
+local forwardOffset = 0 
+
+local function getPlayerNames()
+    local names = {}
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            table.insert(names, p.Name)
+        end
+    end
+    if #names == 0 then table.insert(names, "No Players") end
+    return names
+end
+
+local function applyESP(player)
+    if player.Character then
+        if player.Character:FindFirstChild("PlayerHighlight") then player.Character.PlayerHighlight:Destroy() end
+        if player.Character:FindFirstChild("HumanoidRootPart") and player.Character.HumanoidRootPart:FindFirstChild("PlayerNameTag") then
+            player.Character.HumanoidRootPart.PlayerNameTag:Destroy()
+        end
+
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "PlayerHighlight"
+        highlight.FillColor = SelectedESPColor
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        highlight.FillTransparency = 0.4
+        highlight.OutlineTransparency = 0
+        highlight.Parent = player.Character
+
+        local nameTag = Instance.new("BillboardGui")
+        nameTag.Name = "PlayerNameTag"
+        nameTag.Size = UDim2.new(0, 200, 0, 50)
+        nameTag.StudsOffset = Vector3.new(0, 4, 0)
+        nameTag.AlwaysOnTop = true
+        
+        local textLabel = Instance.new("TextLabel", nameTag)
+        textLabel.Size = UDim2.new(1, 0, 1, 0)
+        textLabel.BackgroundTransparency = 1
+        textLabel.TextColor3 = SelectedESPColor
+        textLabel.TextStrokeTransparency = 0
+        textLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        textLabel.Font = Enum.Font.RobotoMono
+        textLabel.TextSize = 18
+        textLabel.Text = player.Name
+        
+        nameTag.Parent = player.Character:FindFirstChild("HumanoidRootPart")
+    end
+end
+
+local function updateAllColors()
+    if ESPEnabled then
+        for _, p in pairs(Players:GetPlayers()) do
+            if p.Character then
+                local highlight = p.Character:FindFirstChild("PlayerHighlight")
+                if highlight and highlight:IsA("Highlight") then
+                    highlight.FillColor = SelectedESPColor
+                end
+                if p.Character:FindFirstChild("HumanoidRootPart") and p.Character.HumanoidRootPart:FindFirstChild("PlayerNameTag") then
+                    local textLabel = p.Character.HumanoidRootPart.PlayerNameTag:FindFirstChildOfClass("TextLabel")
+                    if textLabel then
+                        textLabel.TextColor3 = SelectedESPColor
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function fetchServerLists()
+    serverListHigh = {}
+    serverListLow = {}
+    local success, result = pcall(function() return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Desc&limit=100")) end)
+    if success and result and result.data then
+        local count = 0
+        for _, server in pairs(result.data) do
+            if server.playing < server.maxPlayers and server.id ~= game.JobId then
+                count = count + 1
+                local info = string.format("Server #%d (%d/%d)", count, server.playing, server.maxPlayers)
+                table.insert(serverListHigh, {Name = info, Id = server.id})
+                if count >= 10 then break end
+            end
+        end
+    end
+    local success2, result2 = pcall(function() return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100")) end)
+    if success2 and result2 and result2.data then
+        local count = 0
+        for _, server in pairs(result2.data) do
+            if server.playing < server.maxPlayers and server.id ~= game.JobId and server.playing > 0 then
+                count = count + 1
+                local info = string.format("Server #%d (%d/%d)", count, server.playing, server.maxPlayers)
+                table.insert(serverListLow, {Name = info, Id = server.id})
+                if count >= 10 then break end
+            end
+        end
+    end
+end
+
+pcall(fetchServerLists)
+
+local function getHighNames()
+    local t = {}
+    for _, v in ipairs(serverListHigh) do table.insert(t, v.Name) end
+    if #t == 0 then table.insert(t, "No Servers Found") end
+    return t
+end
+
+local function getLowNames()
+    local t = {}
+    for _, v in ipairs(serverListLow) do table.insert(t, v.Name) end
+    if #t == 0 then table.insert(t, "No Servers Found") end
+    return t
+end
+
+local function updateVisualCircle()
+    if autoAttackEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        if not visualCircle or visualCircle.Parent == nil then
+            visualCircle = Instance.new("CylinderHandleAdornment")
+            visualCircle.Name = "AutoAttackRangeCircle"
+            visualCircle.Color3 = Color3.fromRGB(0, 162, 255)
+            visualCircle.Transparency = 0.7
+            visualCircle.AlwaysOnTop = true
+            visualCircle.ZIndex = 5
+            visualCircle.Angle = 360
+        end
+        visualCircle.Adornee = LocalPlayer.Character.HumanoidRootPart
+        visualCircle.Radius = attackRadius
+        visualCircle.Height = 0.5
+        visualCircle.CFrame = CFrame.new(0, -3, 0) * CFrame.Angles(math.rad(90), 0, 0)
+        visualCircle.Parent = LocalPlayer.Character.HumanoidRootPart
+    else
+        if visualCircle then
+            visualCircle:Destroy()
+            visualCircle = nil
+        end
+    end
+end
+
+local HomeTab = Window:CreateTab("Home", "home")
+local MainTab = Window:CreateTab("Main", "car")
+local AutoAttackTab = Window:CreateTab("Auto Attack 🌀", "zap") 
+local VisualTab = Window:CreateTab("Visuals", "eye") 
+local ManualTab = Window:CreateTab("Manual Spin", "refresh-cw")
+local UtilityTab = Window:CreateTab("Utility", "globe")
+
+local HomePlayerCount = HomeTab:CreateLabel("Players: Loading...")
+local HomeFPS = HomeTab:CreateLabel("FPS: Loading...")
+local HomePing = HomeTab:CreateLabel("Ping: Loading...")
+
+task.spawn(function()
+    while task.wait(1) do
+        pcall(function()
+            HomePlayerCount:Set("👥 Players: " .. #Players:GetPlayers())
+            HomeFPS:Set("⚡ FPS: " .. math.floor(1/RunService.RenderStepped:Wait()))
+            HomePing:Set("🌐 Ping: " .. math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) .. " ms")
+        end)
+    end
+end)
+
+local PlayerDropdown = MainTab:CreateDropdown({
+    Name = "🎯 Select Target Player",
+    Options = getPlayerNames(),
+    CurrentOption = nil,
+    Callback = function(Option) selectedPlayerName = Option[1] end
+})
+
+MainTab:CreateButton({ Name = "🔄 Refresh Player List", Callback = function() 
+    local currentPlayers = getPlayerNames()
+    PlayerDropdown:Refresh(currentPlayers, true)
+    if selectedPlayerName and not table.find(currentPlayers, selectedPlayerName) then selectedPlayerName = nil end
+end })
+
+MainTab:CreateDropdown({
+    Name = "⚔️ Attack Mode",
+    Options = {"Spin", "Crash", "Clockwise Lock"},
+    CurrentOption = "Spin",
+    Callback = function(Option) crashMode = Option[1] end
+})
+
+MainTab:CreateInput({ Name = "📏 Distance", PlaceholderText = "5", Callback = function(Text) targetDistance = tonumber(Text) or 5 end })
+MainTab:CreateInput({ Name = "⬆️ Height Offset", PlaceholderText = "0", Callback = function(Text) heightOffset = tonumber(Text) or 0 end })
+MainTab:CreateInput({ Name = "💨 Speed", PlaceholderText = "60", Callback = function(Text) spinSpeed = tonumber(Text) or 60 end })
+MainTab:CreateToggle({ Name = "✅ Enable System", CurrentValue = false, Callback = function(Value) isSpinning = Value end })
+MainTab:CreateToggle({ Name = "🚗 Noclip Vehicle", CurrentValue = false, Callback = function(Value) noclipEnabled = Value end })
+MainTab:CreateToggle({ Name = "👁️ Spectate Target", CurrentValue = false, Callback = function(Value)
+    spectateEnabled = Value
+    if not Value and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then 
+        Camera.CameraSubject = LocalPlayer.Character.Humanoid 
+    end
+end})
+
+MainTab:CreateSection("🚀 Advanced Vehicle Teleport")
+MainTab:CreateDropdown({
+    Name = "🎯 Select Target",
+    Options = getPlayerNames(),
+    CurrentOption = nil,
+    Callback = function(Option) TeleportTargetName = Option[1] end
+})
+MainTab:CreateDropdown({
+    Name = "⚙️ Mode",
+    Options = {"Normal", "Feet", "Right Side"},
+    CurrentOption = "Normal",
+    Callback = function(Option) TeleportType = Option[1] end
+})
+MainTab:CreateInput({ Name = "↔️ Teleport Distance", PlaceholderText = "5", Callback = function(Text) teleportDistance = tonumber(Text) or 5 end })
+MainTab:CreateInput({ Name = "↕️ Teleport Height", PlaceholderText = "0", Callback = function(Text) teleportHeight = tonumber(Text) or 0 end })
+MainTab:CreateButton({ 
+    Name = "⚡ Perform Teleport", 
+    Callback = function() 
+        if TeleportTargetName and lastVehicle and lastVehicle.PrimaryPart then
+            local target = Players:FindFirstChild(TeleportTargetName)
+            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                local targetCFrame = target.Character.HumanoidRootPart.CFrame
+                if TeleportType == "Normal" then lastVehicle:SetPrimaryPartCFrame(targetCFrame)
+                elseif TeleportType == "Feet" then lastVehicle:SetPrimaryPartCFrame(targetCFrame * CFrame.new(0, -7 + teleportHeight, 0))
+                elseif TeleportType == "Right Side" then lastVehicle:SetPrimaryPartCFrame(targetCFrame * CFrame.new(teleportDistance, teleportHeight, 0)) end
+            end
+        end
+    end 
+})
+
+AutoAttackTab:CreateDropdown({
+    Name = "🔄 Select Auto Attack Mode",
+    Options = {"Default Orbit", "Clockwise Lock"},
+    CurrentOption = "Default Orbit",
+    Callback = function(Option) autoAttackMode = Option[1] end
+})
+
+AutoAttackTab:CreateInput({ Name = "🔵 Adjust Circle Radius", PlaceholderText = "30", Callback = function(Text) attackRadius = tonumber(Text) or 30; updateVisualCircle() end })
+AutoAttackTab:CreateInput({ Name = "↔️ Forward/Backward Offset", PlaceholderText = "0", Callback = function(Text) forwardOffset = tonumber(Text) or 0 end })
+AutoAttackTab:CreateToggle({ Name = "⚡ Enable Auto Orbit & Dip", CurrentValue = false, Callback = function(Value) autoAttackEnabled = Value; updateVisualCircle() end })
+
+VisualTab:CreateToggle({
+    Name = "✨ Enable ESP & Real Names",
+    CurrentValue = false,
+    Callback = function(Value)
+        ESPEnabled = Value
+        if Value then for _, p in pairs(Players:GetPlayers()) do applyESP(p) end
+        else for _, p in pairs(Players:GetPlayers()) do
+            if p.Character then
+                if p.Character:FindFirstChild("PlayerHighlight") then p.Character.PlayerHighlight:Destroy() end
+                if p.Character:FindFirstChild("HumanoidRootPart") and p.Character.HumanoidRootPart:FindFirstChild("PlayerNameTag") then p.Character.HumanoidRootPart.PlayerNameTag:Destroy() end
+            end
+        end end
+    end
+})
+
+VisualTab:CreateColorPicker({
+    Name = "🎨 ESP Color",
+    Color = Color3.fromRGB(0, 162, 255),
+    Callback = function(Value) SelectedESPColor = Value; updateAllColors() end
+})
+
+ManualTab:CreateInput({ Name = "⚙️ Rotation Speed", PlaceholderText = "10", Callback = function(Text) manualSpinSpeed = tonumber(Text) or 10 end })
+ManualTab:CreateToggle({ Name = "🌀 Toggle Manual Spin", CurrentValue = false, Callback = function(Value) isManualSpinning = Value end })
+
+UtilityTab:CreateButton({ Name = "🔁 Rejoin Server", Callback = function() TeleportService:Teleport(game.PlaceId, LocalPlayer) end })
+UtilityTab:CreateSection("🌐 Server Explorer")
+local HighDropdown = UtilityTab:CreateDropdown({ Name = "🔥 High Player Servers", Options = getHighNames(), Callback = function(Option) for _, v in ipairs(serverListHigh) do if v.Name == Option[1] then selectedServerHighId = v.Id break end end end })
+UtilityTab:CreateButton({ Name = "🚀 Join High Server", Callback = function() if selectedServerHighId then TeleportService:TeleportToPlaceInstance(game.PlaceId, selectedServerHighId, LocalPlayer) end end })
+local LowDropdown = UtilityTab:CreateDropdown({ Name = "🍃 Low Player Servers", Options = getLowNames(), Callback = function(Option) for _, v in ipairs(serverListLow) do if v.Name == Option[1] then selectedServerLowId = v.Id break end end end })
+UtilityTab:CreateButton({ Name = "🚀 Join Low Server", Callback = function() if selectedServerLowId then TeleportService:TeleportToPlaceInstance(game.PlaceId, selectedServerLowId, LocalPlayer) end end })
+
+RunService.Heartbeat:Connect(function()
+    pcall(function()
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") and LocalPlayer.Character.Humanoid.SeatPart then 
+            lastVehicle = LocalPlayer.Character.Humanoid.SeatPart.Parent 
+        end
+
+        if autoAttackEnabled and lastVehicle and lastVehicle.PrimaryPart and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local myRoot = LocalPlayer.Character.HumanoidRootPart
+            local closestPlayer = nil
+            local shortestDistance = attackRadius
+
+            for _, p in pairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+                    local pRoot = p.Character.HumanoidRootPart
+                    local dist = (myRoot.Position - pRoot.Position).Magnitude
+                    if dist < shortestDistance then shortestDistance = dist; closestPlayer = p end
+                end
+            end
+
+            if closestPlayer and closestPlayer.Character and closestPlayer.Character:FindFirstChild("LeftUpperLeg") then
+                local targetPart = closestPlayer.Character.LeftUpperLeg
+                if autoAttackMode == "Default Orbit" then
+                    local centerPos = (targetPart.CFrame * CFrame.new(0, math.sin(tick() * 15) * 4, forwardOffset)) 
+                    local rotation = CFrame.Angles(math.rad(tick() * 360), math.rad(tick() * 360), 0) 
+                    lastVehicle:SetPrimaryPartCFrame(centerPos * rotation)
+                else
+                    local time = tick() * (spinSpeed / 5)
+                    local x = math.cos(time) * targetDistance
+                    local z = math.sin(time) * targetDistance
+                    local orbitPos = targetPart.CFrame * CFrame.new(x, 0, z)
+                    lastVehicle:SetPrimaryPartCFrame(CFrame.new(orbitPos.Position, targetPart.Position))
+                end
+                for _, p in pairs(lastVehicle:GetDescendants()) do if p:IsA("BasePart") then p.CanTouch = false end end
+            else
+                local dipRotation = CFrame.Angles(math.rad(-90), math.rad(tick() * 180), 0) 
+                local coverPos = myRoot.CFrame * CFrame.new(0, 0, forwardOffset) 
+                lastVehicle:SetPrimaryPartCFrame(coverPos * dipRotation)
+            end
+        end
+
+        if isManualSpinning and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then 
+            LocalPlayer.Character.HumanoidRootPart.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame * CFrame.Angles(0, math.rad(manualSpinSpeed), 0) 
+        end
+        
+        if spectateEnabled and selectedPlayerName then
+            local target = Players:FindFirstChild(selectedPlayerName)
+            if target and target.Character and target.Character:FindFirstChild("Humanoid") then Camera.CameraSubject = target.Character.Humanoid end
+        end
+        
+        if noclipEnabled and lastVehicle then 
+            for _, p in pairs(lastVehicle:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = false end end 
+        end
+        
+        if isSpinning and selectedPlayerName and lastVehicle and lastVehicle.PrimaryPart then
+            local target = Players:FindFirstChild(selectedPlayerName)
+            if target and target.Character and target.Character:FindFirstChild("LeftUpperLeg") then
+                local targetPart = target.Character.LeftUpperLeg
+                if crashMode == "Spin" then
+                    local centerPos = (targetPart.CFrame * CFrame.new(0, heightOffset, targetDistance))
+                    local wobble = CFrame.new(math.sin(tick() * spinSpeed) * 2, 0, math.cos(tick() * spinSpeed) * 2)
+                    local rotation = CFrame.Angles(0, tick() * (spinSpeed / 2), 0)
+                    lastVehicle:SetPrimaryPartCFrame(centerPos * wobble * rotation)
+                elseif crashMode == "Crash" then
+                    local frontPos = (targetPart.CFrame * CFrame.new(0, heightOffset, targetDistance))
+                    local lookAtTarget = CFrame.new(frontPos.Position, targetPart.Position)
+                    local shake = CFrame.new(math.sin(tick() * spinSpeed) * 0.5, 0, 0)
+                    lastVehicle:SetPrimaryPartCFrame(lookAtTarget * shake)
+                elseif crashMode == "Clockwise Lock" then
+                    local orbitPos = (targetPart.CFrame * CFrame.Angles(0, math.rad(tick() * spinSpeed * 2), 0)) * CFrame.new(0, heightOffset, targetDistance)
+                    lastVehicle:SetPrimaryPartCFrame(CFrame.new(orbitPos.Position, targetPart.Position))
+                end
+                for _, p in pairs(lastVehicle:GetDescendants()) do if p:IsA("BasePart") then p.CanTouch = false end end
+            end
+        end
+    end)
+end)
