@@ -1,0 +1,336 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+-- ==========================================
+-- ตั้งค่าระบบหลัก
+-- ==========================================
+local CAM_SPEED = 1.5
+local SENSITIVITY = 0.4
+
+local isFreecam = false
+local isBrightMode = false
+local isEspActive = false
+local isClayMode = false
+local isUiVisible = true -- สถานะการเปิด/ปิด UI เมนูหลัก
+
+local movement = {W = false, S = false, A = false, D = false}
+local cameraYaw, cameraPitch = 0, 0
+local espConnections = {}
+
+-- ==========================================
+-- สร้าง UI และปุ่มสลับสถานะล็อก 🔓 / 🔒
+-- ==========================================
+local screenGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+screenGui.Name = "MobileMasterGui"
+screenGui.ResetOnSpawn = false
+
+-- ปุ่มสวิตช์เปิด-ปิดการล็อกหน้าจอ (เริ่มต้นเป็น 🔓)
+local toggleUiBtn = Instance.new("TextButton", screenGui)
+toggleUiBtn.Name = "ToggleUiBtn"
+toggleUiBtn.Size = UDim2.new(0, 45, 0, 45)
+toggleUiBtn.Position = UDim2.new(0.02, 0, 0.42, 0) -- อยู่ต่อจากช่องกรอกความเร็ว
+toggleUiBtn.Text = "🔓"
+toggleUiBtn.TextSize = 22
+toggleUiBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+toggleUiBtn.BorderSizePixel = 0
+Instance.new("UICorner", toggleUiBtn).CornerRadius = UDim.new(0.5, 0)
+
+local toggleUiStroke = Instance.new("UIStroke", toggleUiBtn)
+toggleUiStroke.Thickness = 2
+toggleUiStroke.Color = Color3.fromRGB(255, 255, 255)
+
+-- Container สำหรับกลุ่มเมนูหลัก เพื่อให้สามารถซ่อน/แสดงพร้อมกันได้ง่าย
+local menuContainer = Instance.new("Frame", screenGui)
+menuContainer.Size = UDim2.new(1, 0, 1, 0)
+menuContainer.BackgroundTransparency = 1
+menuContainer.Visible = true
+
+local function createMenuButton(name, pos, color)
+	local btn = Instance.new("TextButton", menuContainer)
+	btn.Size = UDim2.new(0, 160, 0, 42)
+	btn.Position = pos
+	btn.Text = name
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 13
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.BackgroundColor3 = color
+	btn.BorderSizePixel = 0
+	
+	local corner = Instance.new("UICorner", btn)
+	corner.CornerRadius = UDim.new(0, 10)
+	
+	local stroke = Instance.new("UIStroke", btn)
+	stroke.Thickness = 1.5
+	stroke.Color = Color3.fromRGB(80, 80, 80)
+	
+	return btn, stroke
+end
+
+local toggleBtn, toggleStroke = createMenuButton("เปิด Freecam", UDim2.new(0.02, 0, 0.05, 0), Color3.fromRGB(30, 30, 30))
+local lightBtn, lightStroke = createMenuButton("เพิ่มแสง / ลบหมอก", UDim2.new(0.02, 0, 0.12, 0), Color3.fromRGB(30, 30, 30))
+local espBtn, espStroke = createMenuButton("เปิดระบบมองผู้เล่น", UDim2.new(0.02, 0, 0.19, 0), Color3.fromRGB(30, 30, 30))
+local clayBtn, clayStroke = createMenuButton("เปิดโหมดดินน้ำมัน", UDim2.new(0.02, 0, 0.26, 0), Color3.fromRGB(30, 30, 30))
+
+-- ช่องกรอกความเร็วกล้อง
+local speedInput = Instance.new("TextBox", menuContainer)
+speedInput.Size = UDim2.new(0, 160, 0, 42)
+speedInput.Position = UDim2.new(0.02, 0, 0.33, 0)
+speedInput.PlaceholderText = "พิมพ์ความเร็วกล้อง..."
+speedInput.Text = "1.5"
+speedInput.Font = Enum.Font.GothamBold
+speedInput.TextSize = 13
+speedInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedInput.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+speedInput.BorderSizePixel = 0
+Instance.new("UICorner", speedInput).CornerRadius = UDim.new(0, 10)
+
+local speedStroke = Instance.new("UIStroke", speedInput)
+speedStroke.Thickness = 1.5
+speedStroke.Color = Color3.fromRGB(80, 80, 80)
+
+speedInput.FocusLost:Connect(function()
+	local num = tonumber(speedInput.Text)
+	if num then CAM_SPEED = num else speedInput.Text = tostring(CAM_SPEED) end
+end)
+
+-- ลอจิกเปิด/ปิด การล็อกหน้าจอเพื่อซ่อนเมนูหลัก
+toggleUiBtn.MouseButton1Click:Connect(function()
+	isUiVisible = not isUiVisible
+	menuContainer.Visible = isUiVisible
+	
+	if isUiVisible then
+		toggleUiBtn.Text = "🔓"
+		toggleUiBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+	else
+		toggleUiBtn.Text = "🔒"
+		toggleUiBtn.BackgroundColor3 = Color3.fromRGB(40, 15, 15) -- เปลี่ยนพื้นหลังเป็นโทนแดงเข้มเมื่อล็อกไว้
+	end
+end)
+
+-- ==========================================
+-- ระบบปุ่มควบคุมกล้องบนจอมือถือ
+-- ==========================================
+local function createMoveButton(name, pos)
+	local btn = Instance.new("TextButton", screenGui)
+	btn.Size = UDim2.new(0, 65, 0, 65)
+	btn.Position = pos
+	btn.Text = name
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 24
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+	btn.BackgroundTransparency = 0.4
+	btn.BorderSizePixel = 0
+	btn.Visible = false
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0.5, 0)
+	return btn
+end
+
+local btnW = createMoveButton("▲", UDim2.new(0.82, 0, 0.55, 0))
+local btnS = createMoveButton("▼", UDim2.new(0.82, 0, 0.75, 0))
+local btnA = createMoveButton("◀", UDim2.new(0.72, 0, 0.65, 0))
+local btnD = createMoveButton("▶", UDim2.new(0.92, 0, 0.65, 0))
+
+local function bindMobileBtn(btn, direction)
+	btn.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			movement[direction] = true; btn.BackgroundTransparency = 0.1
+		end
+	end)
+	btn.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			movement[direction] = false; btn.BackgroundTransparency = 0.4
+		end
+	end)
+end
+bindMobileBtn(btnW, "W") bindMobileBtn(btnS, "S") bindMobileBtn(btnA, "A") bindMobileBtn(btnD, "D")
+
+-- ==========================================
+-- ระบบมองผู้เล่นคนอื่น (ESP RGB ขนาดกะทัดรัด - ลบปุ่มตาออกแล้ว)
+-- ==========================================
+local function createEspForPlayer(targetPlayer)
+	if targetPlayer == player then return end
+	
+	local function onCharacterAdded(char)
+		local head = char:WaitForChild("Head", 5)
+		if not head then return end
+		
+		local bbGui = Instance.new("BillboardGui")
+		bbGui.Name = "PlayerEspUI"
+		bbGui.Size = UDim2.new(0, 100, 0, 32)
+		bbGui.AlwaysOnTop = true
+		bbGui.ExtentsOffset = Vector3.new(0, 2.5, 0)
+		bbGui.SizeOffset = Vector2.new(0, 0)
+		bbGui.Parent = head
+		
+		local mainFrame = Instance.new("Frame", bbGui)
+		mainFrame.Size = UDim2.new(1, 0, 1, 0)
+		mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+		mainFrame.BackgroundTransparency = 0.1
+		Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 6)
+		
+		local frameStroke = Instance.new("UIStroke", mainFrame)
+		frameStroke.Thickness = 1.5
+		frameStroke.Color = Color3.fromHSV(0, 1, 1)
+		
+		local pfpImage = Instance.new("ImageLabel", mainFrame)
+		pfpImage.Size = UDim2.new(0, 24, 0, 24)
+		pfpImage.Position = UDim2.new(0.08, 0, 0.5, -12)
+		pfpImage.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+		pfpImage.Image = Players:GetUserThumbnailAsync(targetPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
+		Instance.new("UICorner", pfpImage).CornerRadius = UDim.new(0.5, 0)
+		
+		local nameLabel = Instance.new("TextLabel", mainFrame)
+		nameLabel.Size = UDim2.new(0, 60, 0, 24)
+		nameLabel.Position = UDim2.new(0.38, 0, 0.5, -12)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.Text = targetPlayer.DisplayName
+		nameLabel.Font = Enum.Font.GothamBold
+		nameLabel.TextSize = 10
+		nameLabel.TextColor3 = Color3.new(1, 1, 1)
+		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+		-- ตัวครอบเรืองแสงรอบตัวละคร (RGB Chams)
+		local highlight = Instance.new("Highlight")
+		highlight.Name = "PlayerEspHighlight"
+		highlight.FillTransparency = 0.5
+		highlight.OutlineTransparency = 0
+		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		highlight.Parent = char
+		
+		local rgbConnection
+		rgbConnection = RunService.RenderStepped:Connect(function()
+			if not char:IsDescendantOf(workspace) then rgbConnection:Disconnect(); return end
+			local hue = (tick() % 4) / 4
+			local color = Color3.fromHSV(hue, 1, 1)
+			
+			frameStroke.Color = color
+			nameLabel.TextColor3 = color
+			highlight.FillColor = color
+			highlight.OutlineColor = color
+		end)
+		table.insert(espConnections, rgbConnection)
+	end
+	
+	if targetPlayer.Character then onCharacterAdded(targetPlayer.Character) end
+	local charConn = targetPlayer.CharacterAdded:Connect(onCharacterAdded)
+	table.insert(espConnections, charConn)
+end
+
+local function removeAllEsp()
+	for _, conn in pairs(espConnections) do conn:Disconnect() end
+	espConnections = {}
+	for _, p in pairs(Players:GetPlayers()) do
+		if p.Character then
+			local head = p.Character:FindFirstChild("Head")
+			if head and head:FindFirstChild("PlayerEspUI") then head.PlayerEspUI:Destroy() end
+			if p.Character:FindFirstChild("PlayerEspHighlight") then p.Character.PlayerEspHighlight:Destroy() end
+		end
+	end
+end
+
+-- ==========================================
+-- ลอจิกปุ่มกดเมนูต่างๆ
+-- ==========================================
+
+toggleBtn.MouseButton1Click:Connect(function()
+	isFreecam = not isFreecam
+	camera.CameraType = isFreecam and Enum.CameraType.Scriptable or Enum.CameraType.Custom
+	toggleBtn.Text = isFreecam and "ปิด Freecam" or "เปิด Freecam"
+	btnW.Visible = isFreecam; btnS.Visible = isFreecam; btnA.Visible = isFreecam; btnD.Visible = isFreecam
+	
+	if isFreecam then
+		local x, y, z = camera.CFrame:ToOrientation()
+		cameraYaw, cameraPitch = math.deg(y), math.clamp(math.deg(x), -80, 80)
+		toggleStroke.Color = Color3.fromRGB(200, 50, 50)
+		if player.Character and player.Character:FindFirstChild("Humanoid") then player.Character.Humanoid.WalkSpeed = 0 end
+	else
+		toggleStroke.Color = Color3.fromRGB(80, 80, 80)
+		if player.Character and player.Character:FindFirstChild("Humanoid") then player.Character.Humanoid.WalkSpeed = 16 end
+		for k in pairs(movement) do movement[k] = false end
+	end
+end)
+
+lightBtn.MouseButton1Click:Connect(function()
+	isBrightMode = not isBrightMode
+	Lighting.Brightness = isBrightMode and 4 or 2
+	Lighting.GlobalShadows = not isBrightMode
+	Lighting.FogStart = isBrightMode and 999999 or 0
+	Lighting.FogEnd = isBrightMode and 999999 or 100000
+	Lighting.Ambient = isBrightMode and Color3.fromRGB(255,255,255) or Color3.fromRGB(128,128,128)
+	Lighting.OutdoorAmbient = isBrightMode and Color3.fromRGB(255,255,255) or Color3.fromRGB(128,128,128)
+	lightBtn.Text = isBrightMode and "ปิดโหมดเพิ่มแสง" or "เปิดโหมดเพิ่มแสง"
+	lightStroke.Color = isBrightMode and Color3.fromRGB(50, 180, 50) or Color3.fromRGB(80, 80, 80)
+end)
+
+espBtn.MouseButton1Click:Connect(function()
+	isEspActive = not isEspActive
+	espBtn.Text = isEspActive and "ปิดระบบมองผู้เล่น" or "เปิดระบบมองผู้เล่น"
+	if isEspActive then
+		espStroke.Color = Color3.fromRGB(180, 50, 200)
+		for _, p in pairs(Players:GetPlayers()) do createEspForPlayer(p) end
+		local joinConn = Players.PlayerAdded:Connect(createEspForPlayer)
+		table.insert(espConnections, joinConn)
+	else
+		espStroke.Color = Color3.fromRGB(80, 80, 80)
+		removeAllEsp()
+	end
+end)
+
+clayBtn.MouseButton1Click:Connect(function()
+	isClayMode = not isClayMode
+	clayBtn.Text = isClayMode and "ปิดโหมดดินน้ำมัน" or "เปิดโหมดดินน้ำมัน"
+	clayStroke.Color = isClayMode and Color3.fromRGB(230, 130, 20) or Color3.fromRGB(80, 80, 80)
+	
+	for _, obj in pairs(workspace:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			if isClayMode then
+				if not obj:GetAttribute("OldMaterial") then obj:SetAttribute("OldMaterial", obj.Material.Value) end
+				obj.Material = Enum.Material.Plastic
+			else
+				local oldMat = obj:GetAttribute("OldMaterial")
+				obj.Material = oldMat and Enum.Material[oldMat] or Enum.Material.SmoothPlastic
+			end
+		end
+	end
+end)
+
+-- ==========================================
+-- ลูปควบคุมทิศทาง Freecam บนจอมือถือ
+-- ==========================================
+UserInputService.TouchMoved:Connect(function(touch, gameProcessed)
+	if not isFreecam or gameProcessed then return end 
+	local delta = touch.Delta
+	cameraYaw = cameraYaw - (delta.X * SENSITIVITY)
+	cameraPitch = math.clamp(cameraPitch - (delta.Y * SENSITIVITY), -80, 80)
+end)
+
+RunService.RenderStepped:Connect(function()
+	local menuHue = (tick() % 6) / 6
+	if not isFreecam then toggleStroke.Color = Color3.fromHSV(menuHue, 0.7, 0.8) end
+	if not isBrightMode then lightStroke.Color = Color3.fromHSV(menuHue, 0.7, 0.8) end
+	if not isEspActive then espStroke.Color = Color3.fromHSV(menuHue, 0.7, 0.8) end
+	if not isClayMode then clayStroke.Color = Color3.fromHSV(menuHue, 0.7, 0.8) end
+	speedStroke.Color = Color3.fromHSV(menuHue, 0.7, 0.8)
+	toggleUiStroke.Color = Color3.fromHSV(menuHue, 0.7, 0.8) -- ให้ปุ่มล็อกหน้าจอวิ่งแสง RGB ด้วยเช่นกัน
+
+	if not isFreecam then return end
+	
+	local rotationCFrame = CFrame.Angles(0, math.rad(cameraYaw), 0) * CFrame.Angles(math.rad(cameraPitch), 0, 0)
+	camera.CFrame = CFrame.new(camera.CFrame.Position) * rotationCFrame
+	
+	local moveDirection = Vector3.new(0, 0, 0)
+	if movement.W then moveDirection = moveDirection + camera.CFrame.LookVector end
+	if movement.S then moveDirection = moveDirection - camera.CFrame.LookVector end
+	if movement.A then moveDirection = moveDirection - camera.CFrame.RightVector end
+	if movement.D then moveDirection = moveDirection + camera.CFrame.RightVector end
+	
+	if moveDirection.Magnitude > 0 then
+		camera.CFrame = camera.CFrame + (moveDirection.Unit * CAM_SPEED)
+	end
+end)
